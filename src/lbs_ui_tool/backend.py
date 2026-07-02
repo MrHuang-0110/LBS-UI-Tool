@@ -142,3 +142,52 @@ class BackendBridge(QObject):
     def _state_to_dict(st):
         return {"battery": st.battery, "version": st.version,
                 "state": st.state, "ports": {str(k): v for k, v in st.ports.items()}}
+
+    # —— Python IDE 相关槽(Task 18)——
+
+    @Slot(str, result=str)
+    def compile_python(self, src_path):
+        """调用 PikaCompiler 把 .py 编译为 .o。成功返回 out 路径,
+        失败 emit taskFinished(False, 错误信息)并返回空串。"""
+        from lbs_ui_tool.pika_compiler import PikaCompiler
+        try:
+            out = PikaCompiler().compile(src_path)
+            return out
+        except Exception as e:
+            self.taskFinished.emit(False, str(e))
+            return ""
+
+    @Slot(str, int)
+    def deploy_python(self, o_path, slot):
+        """把 .o 字节码下发到指定槽位(0-19)。同步执行会卡 UI 线程,
+        本任务先简单同步,Task 19 统一优化为 worker。"""
+        if not self.profile:
+            self.taskFinished.emit(False, "未连接")
+            return
+        try:
+            self.profile.deploy_python(o_path, slot, lambda p, m: self.progress.emit(p, m))
+            self.taskFinished.emit(True, "下发完成")
+        except Exception as e:
+            self.taskFinished.emit(False, str(e))
+
+    @Slot(str, result=str)
+    def read_file(self, path):
+        """读取 UTF-8 文本文件全文,供编辑器加载。"""
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+
+    @Slot(str, str)
+    def write_file(self, path, content):
+        """把编辑器内容写回文件(保存)。"""
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+
+    @Slot(str, result="QVariantList")
+    def list_py(self, folder):
+        """列出 folder 目录下所有 .py 文件名(不含子目录)。
+        folder 可能为 QUrl(QML 传入)或纯路径字符串。"""
+        import os
+        if hasattr(folder, "toString"):
+            folder = folder.toString()
+        folder = str(folder).replace("file:///", "")
+        return [f for f in os.listdir(folder) if f.endswith(".py")]
