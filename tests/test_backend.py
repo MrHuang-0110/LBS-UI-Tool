@@ -208,15 +208,16 @@ def test_scan_firmware_dir_not_connected(qtbot):
 
 def test_download_firmware_calls_enter_bootloader_for_new_ai(qtbot, monkeypatch, tmp_path):
     """NEW-AI 走 download 前应触发 enter_bootloader 与端口重连流程。"""
+    import time as _time
     from lbs_ui_tool.protocol.serial_transport import FakeSerial
     fake = FakeSerial()
     fake.port = "COM_TEST"
     b = BackendBridge()
     monkeypatch.setattr(b, "_open_serial", lambda port: fake)
     b.connect_device("COM_TEST", "NEW-AI")
-    # mock:port_present 直接连续返回 False(消失)→ True(重现)
-    seq = iter([False, True, True, True])
-    monkeypatch.setattr(b, "_port_present", lambda p: next(seq, True))
+    # mock:避免真等 2s+5s(长 sleep 只记录不真等)
+    orig_sleep = _time.sleep
+    monkeypatch.setattr("time.sleep", lambda s: orig_sleep(s) if s < 1.0 else None)
     # mock:profile.download_firmware 不真跑,只标记调用
     called = []
     monkeypatch.setattr(b.profile, "download_firmware", lambda pkg, cb: called.append(True))
@@ -238,7 +239,11 @@ def test_download_firmware_calls_enter_bootloader_for_new_ai(qtbot, monkeypatch,
 
 
 def test_enter_bootloader_and_reconnect_delays_before_return(qtbot, monkeypatch, tmp_path):
-    """重连后应有 2s BOOT 就绪等待,再让 download_firmware 开始。"""
+    """重连后应有 5s BOOT 就绪等待,再让 download_firmware 开始。
+
+    照搬参考实现 reset_device:关串口 → sleep(2s) → 重试 open → open 成功后 sleep(5s)。
+    不做端口消失/重现检测。
+    """
     import time as _time
     from lbs_ui_tool.protocol.serial_transport import FakeSerial
 
@@ -248,15 +253,12 @@ def test_enter_bootloader_and_reconnect_delays_before_return(qtbot, monkeypatch,
     monkeypatch.setattr(b, "_open_serial", lambda port: fake)
     b.connect_device("COM_TEST", "NEW-AI")
 
-    seq = iter([False, True, True, True, True])
-    monkeypatch.setattr(b, "_port_present", staticmethod(lambda p: next(seq, True)))
-
-    # 记录 sleep 调用时长,避免真等 2s(单测要快)
+    # 记录 sleep 调用时长,避免真等 2s+5s(单测要快)
     sleeps = []
     orig_sleep = _time.sleep
     def fake_sleep(sec):
         sleeps.append(sec)
-        # 短轮询 sleep(0.1/0.2)保留真等,长 sleep(>=1s)只记录不真等
+        # 短 sleep 保留真等,长 sleep(>=1s)只记录不真等
         if sec < 1.0:
             orig_sleep(sec)
     monkeypatch.setattr("time.sleep", fake_sleep)
@@ -271,8 +273,9 @@ def test_enter_bootloader_and_reconnect_delays_before_return(qtbot, monkeypatch,
         b.download_firmware([{"partition": "app", "path": str(src)}])
 
     assert called == [True]
-    # 应有一次 >=2s 的 sleep 调用(就绪等待)
-    assert any(s >= 2.0 for s in sleeps), f"expected 2s BOOT-ready sleep, got {sleeps}"
+    # 应有一次 2s 重启等待 + 一次 5s BOOT 就绪等待
+    assert any(s >= 2.0 for s in sleeps), f"expected 2s reset sleep, got {sleeps}"
+    assert any(s >= 5.0 for s in sleeps), f"expected 5s BOOT-ready sleep, got {sleeps}"
 
 
 def test_download_firmware_skips_bootloader_switch_for_spark(qtbot, monkeypatch, tmp_path):

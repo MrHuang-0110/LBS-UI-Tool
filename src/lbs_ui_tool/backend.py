@@ -48,7 +48,7 @@ class BackendBridge(QObject):
 
     def _open_serial(self, port: str):
         """打开真实串口。可被测试 monkeypatch 替换为 FakeSerial。"""
-        return serial.Serial(port, 115200, timeout=0.1)
+        return serial.Serial(port, 115200, timeout=5)
 
     @Slot(str, str)
     def connect_device(self, port: str, product: str):
@@ -149,11 +149,12 @@ class BackendBridge(QObject):
 
         self._run_in_worker(task)
 
-    def _enter_bootloader_and_reconnect(self, product_name: str, port: str,
-                                        disappear_timeout: float = 5.0,
-                                        reappear_timeout: float = 15.0,
-                                        open_retry_seconds: float = 3.0) -> None:
-        """发进入升级命令 → 关串口 → 等端口消失+重现 → 重新打开 → 重建 profile。
+    def _enter_bootloader_and_reconnect(self, product_name: str, port: str) -> None:
+        """照搬参考实现 SerialDownloader5A.reset_device:
+        发 RESET → 关串口 → sleep(2s) → 重试 open 最多 5 次(每次间隔 1s) →
+        成功后 sleep(5s) 让 BOOT 就绪 → 重绑 profile 内部 transport。
+
+        不做端口消失/重现检测:Windows CDC 重启期间端口可能瞬间还在,轮询不可靠。
         失败时抛异常,由 _run_in_worker 兜底 emit taskFinished(False, msg)。"""
         import time
         self.progress.emit(0, "发送进入升级命令...")
@@ -166,55 +167,33 @@ class BackendBridge(QObject):
             pass
         self._serial = None
         self._transport = None
-        # 等端口消失
-        self.progress.emit(2, "等待设备重启...")
-        t0 = time.time()
-        while time.time() - t0 < disappear_timeout:
-            if not self._port_present(port):
-                break
-            time.sleep(0.1)
-        # 等端口重现
-        self.progress.emit(5, "等待设备重连...")
-        t0 = time.time()
-        while time.time() - t0 < reappear_timeout:
-            if self._port_present(port):
-                break
-            time.sleep(0.2)
-        else:
-            raise RuntimeError(f"设备重连超时({reappear_timeout}s):端口 {port} 未重新出现")
-        # 端口刚出现时 Windows 可能还没完全就绪,尝试打开重试
-        self.progress.emit(8, "重新打开串口...")
-        t0 = time.time()
+
+        self.progress.emit(3, "等待设备重启...")
+        time.sleep(2)
+
+        self.progress.emit(5, "重新打开串口...")
         last_err = None
-        while time.time() - t0 < open_retry_seconds:
+        for attempt in range(5):
             try:
                 self._serial = self._open_serial(port)
                 break
-            except Exception as e:  # pyserial 抛的
+            except Exception as e:
                 last_err = e
-                time.sleep(0.2)
+                time.sleep(1)
         else:
-            raise RuntimeError(f"重新打开串口失败:{last_err}")
+            raise RuntimeError(f"重新打开串口失败(重试 5 次):{last_err}")
+
+        self.progress.emit(8, "等待 BOOT 就绪(5s)...")
+        time.sleep(5)
+
         from lbs_ui_tool.protocol.serial_transport import SerialTransport
+        from lbs_ui_tool.protocol.frame_file_transfer import FrameFileTransfer
         self._transport = SerialTransport(self._serial)
         # 重新绑定 profile 的 transport:旧 transport/FrameFileTransfer 随旧串口失效。
         # 就地重绑(而非 get_profile 重建),保留同一 profile 实例与其状态。
         self.profile._t = self._transport
         if hasattr(self.profile, "_fft"):
-            from lbs_ui_tool.protocol.frame_file_transfer import FrameFileTransfer
             self.profile._fft = FrameFileTransfer(self._transport)
-        # BOOT 起来后需要初始化时间,直接下发会拒 ACK。等 2 秒。
-        self.progress.emit(10, "等待 BOOT 就绪...")
-        time.sleep(2.0)
-
-    @staticmethod
-    def _port_present(port: str) -> bool:
-        """检查指定端口是否在系统里。"""
-        from lbs_ui_tool.protocol.serial_transport import SerialTransport
-        for p in SerialTransport.list_ports():
-            if p.get("device") == port:
-                return True
-        return False
 
     @Slot("QVariantMap")
     def update_sensors(self, ports_map):

@@ -90,7 +90,7 @@ class NewAiProfile(ProductProfile):
                 if progress_cb:
                     progress_cb(int((_i + pct / 100) * 100 / total), f"{_partition} {pct}%")
 
-            ok = self._fft.send(cmd, f.partition, data, block_size=128, progress_cb=cb)
+            ok = self._fft.send(cmd, f.partition, data, progress_cb=cb)
             if not ok:
                 raise RuntimeError(f"{f.partition} 下发失败")
 
@@ -101,7 +101,7 @@ class NewAiProfile(ProductProfile):
             data = fh.read()
         name = f"{slot}.o"
         cb = progress_cb and (lambda p: progress_cb(p, "下发"))
-        ok = self._fft.send(0xDA, name, data, block_size=128, progress_cb=cb)
+        ok = self._fft.send(0xDA, name, data, progress_cb=cb)
         self._t.write(bytes(FrameCodec.encode(CMD_PY_EXIT, b"")))
         if not ok:
             raise RuntimeError("Python 字节码下发失败")

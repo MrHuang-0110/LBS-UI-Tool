@@ -25,6 +25,10 @@ class FakeSerial:
         del self._rx[:n]
         return chunk
 
+    def flush(self) -> None:
+        # SerialTransport.write 会调 flush;FakeSerial 无缓冲,no-op 即可。
+        pass
+
     def in_waiting(self) -> int:
         return len(self._rx)
 
@@ -48,7 +52,12 @@ class SerialTransport:
         ]
 
     def write(self, data: bytes) -> int:
-        return self._serial.write(data)
+        n = self._serial.write(data)
+        try:
+            self._serial.flush()
+        except Exception:
+            pass
+        return n
 
     def read_once(self) -> bytes:
         # in_waiting 可能是方法(FakeSerial)也可能是属性(pyserial)。
