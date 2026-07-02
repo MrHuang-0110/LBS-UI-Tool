@@ -12,7 +12,8 @@ def main():
     engine.rootContext().setContextProperty("backend", backend)
     qml_dir = Path(__file__).parent / "qml"
     engine.addImportPath(str(qml_dir))
-    engine.load(qml_dir / "main.qml")
+    engine.addImportPath(str(qml_dir / "ui"))
+    engine.load(str(qml_dir / "main.qml"))
     if not engine.rootObjects():
         sys.exit(-1)
     sys.exit(app.exec())
