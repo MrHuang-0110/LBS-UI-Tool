@@ -5,8 +5,10 @@ Item {
     id: btn
     property bool selected: false
     property string label: ""
+    property string iconSource: ""
     signal clicked()
-    width: 172; height: 44
+    width: 172
+    height: 44
 
     Rectangle {
         anchors.fill: parent
@@ -23,14 +25,29 @@ Item {
         radius: 1.5
         color: "#0A84FF"
     }
-    Text {
+    Row {
         anchors.left: parent.left
         anchors.leftMargin: 16
         anchors.verticalCenter: parent.verticalCenter
-        text: btn.label
-        color: btn.selected ? "#FFFFFF" : "#9A9AA5"
-        font.pixelSize: 15
-        font.bold: btn.selected
+        spacing: 10
+        Image {
+            visible: btn.iconSource !== ""
+            source: btn.iconSource
+            width: 20
+            height: 20
+            sourceSize.width: 40
+            sourceSize.height: 40
+            smooth: true
+            fillMode: Image.PreserveAspectFit
+            anchors.verticalCenter: parent.verticalCenter
+        }
+        Text {
+            text: btn.label
+            color: btn.selected ? "#FFFFFF" : "#9A9AA5"
+            font.pixelSize: 15
+            font.bold: btn.selected
+            anchors.verticalCenter: parent.verticalCenter
+        }
     }
     MouseArea {
         anchors.fill: parent
