@@ -14,6 +14,8 @@ CRC-16-XMODEM:多项式 0x1021,初始 0。
 import time
 from typing import Callable, Optional
 
+from lbs_ui_tool.protocol.serial_transport import SerialTransport
+
 SOH = 0x01
 STX = 0x02
 EOT = 0x04
@@ -43,27 +45,37 @@ def crc16_xmodem(data: bytes) -> int:
 class YmodemTransfer:
     """YMODEM 发送端。block_size=1024 走 STX(USB),128 走 SOH(蓝牙)。"""
 
-    def __init__(self, serial, block_size: int = 1024, timeout: float = 1.0):
-        self._s = serial
+    def __init__(self, transport: SerialTransport, block_size: int = 1024,
+                 timeout: float = 1.0):
+        self._s = transport
         self.block_size = block_size
         self.timeout = timeout
+        # read_once 一次可能返回多字节(回环会把 host write 的数据块字节灌进来),
+        # 用内部缓冲暂存,逐字节过滤出设备响应字节。
+        self._rx_buf = bytearray()
 
     def _read_byte(self) -> Optional[int]:
         """读一个设备响应字节('C'/ACK/NAK/CAN),跳过回环的数据块字节。
 
-        FakeSerial 把 host write 的字节回环进 _rx;host 写出的数据块(mark 为
-        SOH/STX/EOT,payload、CRC)不是设备响应,_read_byte 跳过这些字节,只
-        返回 YMODEM 响应字节,确保等待 ACK 时不被自己刚写出的块前导字节干扰。
-        超时返回 None。
+        从 ``SerialTransport.read_once()`` 批量读取并暂存进 ``_rx_buf``:
+        FakeSerial 把 host write 的字节回环进底层 _rx,read_once 会把这些数据块
+        字节(mark 为 SOH/STX/EOT,payload、CRC)一并读出。_read_byte 逐字节扫
+        缓冲,只返回 YMODEM 响应字节,跳过回环产生的数据块字节,确保等待 ACK 时
+        不被自己刚写出的块字节干扰。缓冲空时再调 read_once;超时返回 None。
         """
         deadline = time.monotonic() + self.timeout
         while True:
-            b = self._s.read(1)
-            if b:
-                byte = b[0]
+            if self._rx_buf:
+                byte = self._rx_buf[0]
+                del self._rx_buf[0]
                 if byte in _RESPONSE_BYTES:
                     return byte
                 # 非响应字节(回环的数据块字节),跳过继续读
+                continue
+            # 缓冲空,从 transport 读一段(read_once 可能返回多字节)
+            data = self._s.read_once()
+            if data:
+                self._rx_buf.extend(data)
                 continue
             if time.monotonic() >= deadline:
                 return None

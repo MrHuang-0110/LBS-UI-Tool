@@ -6,7 +6,7 @@ FakeSerial 有回环:host write 的字节同时进 tx(供断言)与 _rx(供 read
 测试按完整发送流程预置设备响应序列: C ACK C ACK ACK ACK。
 """
 from lbs_ui_tool.protocol.ymodem import YmodemTransfer, crc16_xmodem, SOH
-from lbs_ui_tool.protocol.serial_transport import FakeSerial
+from lbs_ui_tool.protocol.serial_transport import FakeSerial, SerialTransport
 
 
 def test_crc16_known_value():
@@ -18,7 +18,7 @@ def test_crc16_known_value():
 
 def test_send_small_file_uses_soh_128():
     s = FakeSerial()
-    tx = YmodemTransfer(s, block_size=128)
+    tx = YmodemTransfer(SerialTransport(s), block_size=128)
     # 设备响应序列,对应完整发送流程:
     #   C       握手开始
     #   ACK     文件名块
@@ -38,3 +38,19 @@ def test_send_small_file_uses_soh_128():
     assert b"HELLO" in s.tx
     # progress 回调按 (sent, total) 触发,5 字节单块 -> (5, 5)
     assert seen == [(5, 5)]
+
+
+def test_ymodem_works_with_serial_transport():
+    # YmodemTransfer 必须接收 SerialTransport(与 FrameFileTransfer 一致),
+    # 而非裸 serial 对象。SerialTransport 没有 read 方法,只有 read_once,
+    # 因此 _read_byte 必须改用 read_once() 并维护内部缓冲过滤响应字节。
+    fake = FakeSerial()
+    transport = SerialTransport(fake)
+    # 设备响应序列与 test_send_small_file_uses_soh_128 一致:
+    #   C ACK C ACK ACK ACK
+    fake.feed(b"C\x06C\x06\x06\x06")
+    tx = YmodemTransfer(transport, block_size=128)
+    ok = tx.send("hello.bin", b"HELLO")
+    assert ok
+    assert b"hello.bin" in fake.tx
+    assert b"HELLO" in fake.tx
