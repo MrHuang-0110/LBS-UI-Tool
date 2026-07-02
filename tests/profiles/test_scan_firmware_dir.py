@@ -68,3 +68,62 @@ def test_scan_missing_dir_returns_empty_paths(tmp_path):
     pkg = _mk(NewAiProfile).scan_firmware_dir(missing)
     assert len(pkg.files) == 5
     assert all(f.path == "" for f in pkg.files)
+
+
+def test_new_ai_scan_expands_partition_subdirs(tmp_path):
+    """真实结构:分区是子目录,子目录里多个文件应各展开成一个 FirmwareFile,
+    共享同一 partition 字段。"""
+    import os
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "app.bin").write_bytes(b"1")
+    (tmp_path / "app" / "pikaNewAi.bin").write_bytes(b"2")
+    (tmp_path / "app" / "motor.bin").write_bytes(b"3")
+    (tmp_path / "boot").mkdir()
+    (tmp_path / "boot" / "registryApp.txt").write_bytes(b"x")
+    (tmp_path / "version").mkdir()
+    (tmp_path / "version" / "Version.txt").write_bytes(b"1")
+    (tmp_path / "version" / "gray.txt").write_bytes(b"2")
+    # config / music 缺失(未提供)
+
+    pkg = _mk(NewAiProfile).scan_firmware_dir(str(tmp_path))
+
+    # 展开后:app(3) + boot(1) + config(占位1) + music(占位1) + version(2) = 8 项
+    assert len(pkg.files) == 8
+
+    # 按 partition 分组
+    by_part = {}
+    for f in pkg.files:
+        by_part.setdefault(f.partition, []).append(f)
+    assert len(by_part["app"]) == 3
+    assert len(by_part["boot"]) == 1
+    assert len(by_part["config"]) == 1
+    assert by_part["config"][0].path == ""  # 缺失占位
+    assert len(by_part["music"]) == 1
+    assert by_part["music"][0].path == ""
+    assert len(by_part["version"]) == 2
+
+    # 展开的文件名按字母序(确保稳定顺序)
+    app_names = sorted(os.path.basename(f.path) for f in by_part["app"])
+    assert app_names == ["app.bin", "motor.bin", "pikaNewAi.bin"]
+
+
+def test_new_ai_scan_partition_subdir_empty(tmp_path):
+    """分区子目录存在但空:该分区仍占位一条 path 空。"""
+    (tmp_path / "app").mkdir()  # 空目录
+    pkg = _mk(NewAiProfile).scan_firmware_dir(str(tmp_path))
+    app_entries = [f for f in pkg.files if f.partition == "app"]
+    assert len(app_entries) == 1
+    assert app_entries[0].path == ""
+
+
+def test_new_ai_scan_only_lists_files_in_subdir(tmp_path):
+    """分区子目录里的子目录不递归下发,只列一级文件。"""
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "a.bin").write_bytes(b"x")
+    (tmp_path / "app" / "subdir").mkdir()
+    (tmp_path / "app" / "subdir" / "b.bin").write_bytes(b"y")
+    pkg = _mk(NewAiProfile).scan_firmware_dir(str(tmp_path))
+    app_entries = [f for f in pkg.files if f.partition == "app"]
+    # 只有 a.bin,不包含 subdir/b.bin
+    assert len(app_entries) == 1
+    assert app_entries[0].path.endswith("a.bin")
