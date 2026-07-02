@@ -16,6 +16,33 @@ def test_list_ports(qtbot: QtBot):
     assert isinstance(b.list_ports(), list)
 
 
+def test_connect_device_open_failure_emits(qtbot: QtBot, monkeypatch):
+    """F1: pyserial 打开失败时,profile 仍为 None,taskFinished(False) 触发,connected 不发。"""
+    b = BackendBridge()
+
+    def bad_open(port):
+        raise OSError("port busy")
+
+    monkeypatch.setattr(b, "_open_serial", bad_open)
+    connected_calls = []
+    b.connected.connect(lambda: connected_calls.append(True))
+    with qtbot.waitSignal(b.taskFinished, timeout=1000) as blocker:
+        b.connect_device("COM99", "NEW-AI")
+    assert blocker.args[0] == False
+    assert "port busy" in blocker.args[1] or "连接失败" in blocker.args[1]
+    assert b.profile is None
+    assert connected_calls == []
+
+
+def test_enable_monitor_not_connected_emits(qtbot: QtBot):
+    """F2: 未连接切监控开关,应 emit taskFinished(False, 未连接...)。"""
+    b = BackendBridge()
+    with qtbot.waitSignal(b.taskFinished, timeout=1000) as blocker:
+        b.enable_monitor(True)
+    assert blocker.args[0] == False
+    assert "未连接" in blocker.args[1]
+
+
 def test_connect_selects_profile(qtbot: QtBot, monkeypatch):
     b = BackendBridge()
     fake = FakeSerial()

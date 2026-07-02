@@ -52,7 +52,14 @@ class BackendBridge(QObject):
 
     @Slot(str, str)
     def connect_device(self, port: str, product: str):
-        self._serial = self._open_serial(port)
+        try:
+            self._serial = self._open_serial(port)
+        except Exception as e:
+            self._serial = None
+            self._transport = None
+            self.profile = None
+            self.taskFinished.emit(False, f"连接失败: {e}")
+            return
         self._transport = SerialTransport(self._serial)
         self.profile = get_profile(product, self._transport)
         self.connected.emit()
@@ -140,12 +147,14 @@ class BackendBridge(QObject):
 
     @Slot(bool)
     def enable_monitor(self, on: bool):
-        if self.profile:
-            self.profile.enable_monitor(on)
-            if on:
-                self._monitor_timer.start(50)
-            else:
-                self._monitor_timer.stop()
+        if not self.profile:
+            self.taskFinished.emit(False, "未连接,请先连接设备")
+            return
+        self.profile.enable_monitor(on)
+        if on:
+            self._monitor_timer.start(50)
+        else:
+            self._monitor_timer.stop()
 
     def _poll_serial(self):
         from lbs_ui_tool.protocol.frame_codec import FrameCodec

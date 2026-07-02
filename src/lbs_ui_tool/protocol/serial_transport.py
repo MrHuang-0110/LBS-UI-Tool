@@ -38,8 +38,14 @@ class SerialTransport:
         self._on_data = on_data
 
     @staticmethod
-    def list_ports() -> list[str]:
-        return [p.device for p in serial.tools.list_ports.comports()]
+    def list_ports() -> list[dict]:
+        """返回端口列表,每项 {device, description}。
+        device 用于 pyserial.Serial 打开(如 'COM3');
+        description 是驱动上报的可读名(如 'LBS Serial (COM3)')。"""
+        return [
+            {"device": p.device, "description": p.description or p.device}
+            for p in serial.tools.list_ports.comports()
+        ]
 
     def write(self, data: bytes) -> int:
         return self._serial.write(data)
@@ -48,7 +54,8 @@ class SerialTransport:
         # in_waiting 可能是方法(FakeSerial)也可能是属性(pyserial)。
         w = getattr(self._serial, "in_waiting", 0)
         n = w() if callable(w) else w
-        n = max(n, 1)
+        if n <= 0:
+            return b""
         data = self._serial.read(n)
         if data and self._on_data:
             self._on_data(data)
