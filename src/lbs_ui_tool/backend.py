@@ -75,6 +75,26 @@ class BackendBridge(QObject):
             for f in self.profile.firmware_template().files
         ]
 
+    @Slot("QVariantList")
+    def download_firmware(self, files):
+        """files: [{"partition":..., "path":...}] 由 QML 收集。
+
+        同步执行(阻塞调用线程);真机固件下发耗时较长会卡 UI 线程,
+        本任务先简单同步实现,后续可优化为 worker 线程(不在本任务范围)。
+        """
+        from lbs_ui_tool.profiles.base import FirmwarePackage, FirmwareFile
+        if not self.profile:
+            self.taskFinished.emit(False, "未连接")
+            return
+        pkg = FirmwarePackage(
+            files=[FirmwareFile(f["partition"], f["path"]) for f in files if f.get("path")]
+        )
+        try:
+            self.profile.download_firmware(pkg, lambda p, m: self.progress.emit(p, m))
+            self.taskFinished.emit(True, "固件更新完成")
+        except Exception as e:
+            self.taskFinished.emit(False, str(e))
+
     @Slot(bool)
     def enable_monitor(self, on: bool):
         if self.profile:

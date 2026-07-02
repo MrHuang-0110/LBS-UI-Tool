@@ -33,3 +33,11 @@ def test_progress_signal_emitted(qtbot: QtBot, monkeypatch):
     with qtbot.waitSignal(b.progress, timeout=1000) as blocker:
         b.emit_progress(50, "test")
     assert blocker.args[0] == 50
+
+
+def test_download_firmware_not_connected(qtbot: QtBot):
+    """未连接时 download_firmware 应 emit taskFinished(False)。"""
+    b = BackendBridge()
+    with qtbot.waitSignal(b.taskFinished, timeout=1000) as blocker:
+        b.download_firmware([{"partition": "app", "path": "x.bin"}])
+    assert blocker.args[0] is False
