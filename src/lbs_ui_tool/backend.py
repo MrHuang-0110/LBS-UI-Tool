@@ -104,6 +104,22 @@ class BackendBridge(QObject):
             for f in self.profile.firmware_template().files
         ]
 
+    @Slot(str, result="QVariantList")
+    def scan_firmware_dir(self, folder):
+        """按当前 profile 扫描固件包目录,返回 [{partition, required, path}]
+        列表(与 firmware_template 同结构)供 QML 展示与后续 download。
+        folder 可为 file:/// URL 或纯路径。未连接时返回空列表。"""
+        if not self.profile:
+            return []
+        if hasattr(folder, "toString"):
+            folder = folder.toString()
+        folder = str(folder).replace("file:///", "")
+        pkg = self.profile.scan_firmware_dir(folder)
+        return [
+            {"partition": f.partition, "required": f.required, "path": f.path}
+            for f in pkg.files
+        ]
+
     @Slot("QVariantList")
     def download_firmware(self, files):
         """files: [{"partition":..., "path":...}] 由 QML 收集。

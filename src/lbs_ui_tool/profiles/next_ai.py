@@ -38,6 +38,16 @@ class NextAiProfile(ProductProfile):
         # 单 bin: 无分区概念,partition 留空。
         return FirmwarePackage(files=[FirmwareFile("", "", required=True)])
 
+    def scan_firmware_dir(self, folder: str) -> FirmwarePackage:
+        """NEXT-AI 目录里放一个 .bin(任意文件名),取字典序第一个 .bin。"""
+        import os
+        try:
+            bins = sorted(f for f in os.listdir(folder) if f.endswith(".bin"))
+        except OSError:
+            bins = []
+        path = os.path.join(folder, bins[0]) if bins else ""
+        return FirmwarePackage(files=[FirmwareFile(partition="", path=path, required=True)])
+
     def download_firmware(self, package: FirmwarePackage,
                           progress_cb: Optional[Callable[[int, str], None]]) -> None:
         f = next(x for x in package.files if x.path)

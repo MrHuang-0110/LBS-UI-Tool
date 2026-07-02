@@ -184,3 +184,23 @@ def test_run_in_worker_emits_on_exception(qtbot: QtBot):
         b._run_in_worker(bad)
     assert blocker.args[0] is False
     assert "boom" in blocker.args[1]
+
+
+def test_scan_firmware_dir_slot(qtbot, monkeypatch, tmp_path):
+    from lbs_ui_tool.protocol.serial_transport import FakeSerial
+    (tmp_path / "app").write_bytes(b"x")
+    (tmp_path / "version").write_bytes(b"1")
+    b = BackendBridge()
+    fake = FakeSerial()
+    monkeypatch.setattr(b, "_open_serial", lambda port: fake)
+    b.connect_device("COM1", "SPARK-AI")
+    result = b.scan_firmware_dir(str(tmp_path))
+    assert isinstance(result, list)
+    assert {r["partition"] for r in result} == {"app", "version"}
+    for r in result:
+        assert r["path"].endswith(r["partition"])
+
+
+def test_scan_firmware_dir_not_connected(qtbot):
+    b = BackendBridge()
+    assert b.scan_firmware_dir("/some/path") == []

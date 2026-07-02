@@ -56,5 +56,26 @@ class ProductProfile(ABC):
     @abstractmethod
     def parse_monitor(self, raw: bytes) -> MonitorState: ...
 
+    def scan_firmware_dir(self, folder: str) -> FirmwarePackage:
+        """扫描目录,按 firmware_template() 的分区顺序寻找匹配文件,
+        返回填好 path 的 FirmwarePackage。找不到的分区 path 保持空串。
+        默认实现按 partition 名(如 "app")在 folder 里找同名无后缀文件。
+        子类可覆盖以实现自定义规则(如 NEXT-AI 找 .bin)。"""
+        import os
+        tpl = self.firmware_template()
+        result_files = []
+        try:
+            entries = set(os.listdir(folder))
+        except OSError:
+            entries = set()
+        for f in tpl.files:
+            matched_path = ""
+            if f.partition and f.partition in entries:
+                candidate = os.path.join(folder, f.partition)
+                if os.path.isfile(candidate):
+                    matched_path = candidate
+            result_files.append(FirmwareFile(partition=f.partition, path=matched_path, required=f.required))
+        return FirmwarePackage(files=result_files)
+
     def update_sensors(self, ports: dict[str, int]) -> None:
         raise NotSupportedError(f"{self.name} 不支持传感器更新")
