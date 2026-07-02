@@ -19,148 +19,156 @@ Item {
     property string currentOut: ""    // 编译产物 .o 路径
     property var fileModel: []        // .py 文件名列表(不含路径)
 
-    Row {
+    Column {
         anchors.fill: parent
+        spacing: 0
 
-        // —— 文件树 ——
-        Item {
-            id: treePane
-            width: 200
-            height: parent.height
+        PageHeader { title: "Python 代码" }
 
-            Button {
-                id: openBtn
-                text: "打开项目目录"
-                anchors.top: parent.top
-                anchors.topMargin: 12
-                anchors.horizontalCenter: parent.horizontalCenter
-                onClicked: folderDialog.open()
+        Row {
+            width: parent.width
+            height: parent.height - 60
+
+            // —— 文件树 ——
+            Item {
+                id: treePane
+                width: 200
+                height: parent.height
+
+                Button {
+                    id: openBtn
+                    text: "打开项目目录"
+                    anchors.top: parent.top
+                    anchors.topMargin: 12
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    onClicked: folderDialog.open()
+                }
+
+                ListView {
+                    id: fileTree
+                    anchors.top: openBtn.bottom
+                    anchors.topMargin: 8
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 12
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.leftMargin: 12
+                    anchors.rightMargin: 12
+                    clip: true
+                    model: root.fileModel
+                    delegate: Item {
+                        width: fileTree.width
+                        height: 28
+                        Text {
+                            text: modelData
+                            color: "#FFFFFF"
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                root.currentFile = root.currentDir + "/" + modelData
+                                editor.text = backend.read_file(root.currentFile)
+                                consoleLog.text = "已加载: " + modelData
+                            }
+                        }
+                    }
+                }
             }
 
-            ListView {
-                id: fileTree
-                anchors.top: openBtn.bottom
-                anchors.topMargin: 8
-                anchors.bottom: parent.bottom
-                anchors.bottomMargin: 12
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.leftMargin: 12
-                anchors.rightMargin: 12
-                clip: true
-                model: root.fileModel
-                delegate: Item {
-                    width: fileTree.width
-                    height: 28
-                    Text {
-                        text: modelData
+            // —— 编辑器 ——
+            Rectangle {
+                width: parent.width - treePane.width - toolPane.width
+                height: parent.height
+                color: "#15151C"
+
+                ScrollView {
+                    anchors.fill: parent
+                    TextArea {
+                        id: editor
+                        placeholderText: "选择左侧文件以编辑..."
+                        font.family: "Consolas"
+                        font.pixelSize: 14
                         color: "#FFFFFF"
+                        textFormat: TextEdit.PlainText
+                        wrapMode: TextEdit.NoWrap
+                    }
+                }
+            }
+
+            // —— 控制台 + 工具 ——
+            Column {
+                id: toolPane
+                width: 300
+                height: parent.height
+                padding: 12
+                spacing: 8
+
+                Row {
+                    spacing: 8
+                    Text {
+                        text: "槽位"
+                        color: "#9A9AA5"
                         anchors.verticalCenter: parent.verticalCenter
                     }
-                    MouseArea {
-                        anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
+                    SpinBox {
+                        id: slotBox
+                        from: 0
+                        to: 19
+                        value: 0
+                    }
+                }
+
+                Row {
+                    spacing: 8
+                    Button {
+                        text: "保存"
+                        enabled: root.currentFile !== ""
                         onClicked: {
-                            root.currentFile = root.currentDir + "/" + modelData
-                            editor.text = backend.read_file(root.currentFile)
-                            consoleLog.text = "已加载: " + modelData
+                            backend.write_file(root.currentFile, editor.text)
+                            consoleLog.text = "已保存: " + root.currentFile
+                        }
+                    }
+                    Button {
+                        text: "编译"
+                        enabled: root.currentFile !== ""
+                        onClicked: {
+                            pyBar.value = 0
+                            var o = backend.compile_python(root.currentFile)
+                            if (o) {
+                                root.currentOut = o
+                                consoleLog.text = "已编译: " + o
+                            }
+                            // 失败时 compile_python 已 emit taskFinished(False, msg),
+                            // 由 onTaskFinished 写入错误信息,不在此覆盖以免丢失详情。
+                        }
+                    }
+                    Button {
+                        text: "下发"
+                        enabled: root.currentOut !== ""
+                        onClicked: {
+                            pyBar.value = 0
+                            backend.deploy_python(root.currentOut, slotBox.value)
                         }
                     }
                 }
-            }
-        }
 
-        // —— 编辑器 ——
-        Rectangle {
-            width: parent.width - treePane.width - toolPane.width
-            height: parent.height
-            color: "#15151C"
-
-            ScrollView {
-                anchors.fill: parent
                 TextArea {
-                    id: editor
-                    placeholderText: "选择左侧文件以编辑..."
-                    font.family: "Consolas"
-                    font.pixelSize: 14
-                    color: "#FFFFFF"
-                    textFormat: TextEdit.PlainText
-                    wrapMode: TextEdit.NoWrap
-                }
-            }
-        }
-
-        // —— 控制台 + 工具 ——
-        Column {
-            id: toolPane
-            width: 300
-            height: parent.height
-            padding: 12
-            spacing: 8
-
-            Row {
-                spacing: 8
-                Text {
-                    text: "槽位"
+                    id: consoleLog
+                    width: 276
+                    height: 200
+                    readOnly: true
                     color: "#9A9AA5"
-                    anchors.verticalCenter: parent.verticalCenter
+                    wrapMode: TextEdit.WordWrap
+                    text: ""
                 }
-                SpinBox {
-                    id: slotBox
-                    from: 0
-                    to: 19
+
+                ProgressBar {
+                    id: pyBar
+                    width: 276
                     value: 0
                 }
-            }
-
-            Row {
-                spacing: 8
-                Button {
-                    text: "保存"
-                    enabled: root.currentFile !== ""
-                    onClicked: {
-                        backend.write_file(root.currentFile, editor.text)
-                        consoleLog.text = "已保存: " + root.currentFile
-                    }
-                }
-                Button {
-                    text: "编译"
-                    enabled: root.currentFile !== ""
-                    onClicked: {
-                        pyBar.value = 0
-                        var o = backend.compile_python(root.currentFile)
-                        if (o) {
-                            root.currentOut = o
-                            consoleLog.text = "已编译: " + o
-                        }
-                        // 失败时 compile_python 已 emit taskFinished(False, msg),
-                        // 由 onTaskFinished 写入错误信息,不在此覆盖以免丢失详情。
-                    }
-                }
-                Button {
-                    text: "下发"
-                    enabled: root.currentOut !== ""
-                    onClicked: {
-                        pyBar.value = 0
-                        backend.deploy_python(root.currentOut, slotBox.value)
-                    }
-                }
-            }
-
-            TextArea {
-                id: consoleLog
-                width: 276
-                height: 200
-                readOnly: true
-                color: "#9A9AA5"
-                wrapMode: TextEdit.WordWrap
-                text: ""
-            }
-
-            ProgressBar {
-                id: pyBar
-                width: 276
-                value: 0
             }
         }
     }

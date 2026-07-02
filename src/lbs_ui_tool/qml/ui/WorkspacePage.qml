@@ -11,6 +11,8 @@ Item {
     // 连接状态由 backend.connected/disconnected 信号驱动;
     // 连接后禁用"连接"按钮、启用"断开",反之亦然。
     property bool isConnected: false
+    // 连接失败时由 taskFinished 携带的错误信息,显示在连接状态处。
+    property string lastError: ""
 
     function refreshPorts() {
         portCombo.model = backend.list_ports()
@@ -51,19 +53,45 @@ Item {
                 topPadding: 16
             }
 
-            ComboBox {
-                id: portCombo
-                width: 172
-                // 无串口时显示占位提示,避免空 ComboBox 令人困惑
-                displayText: (currentText === "" ? "无可用串口" : currentText)
+            // 端口下拉 + 圆形刷新图标按钮内联一行
+            Row {
+                spacing: 6
+                ComboBox {
+                    id: portCombo
+                    width: 140
+                    textRole: "description"   // 显示 "LBS Serial (COM3)"
+                    valueRole: "device"       // 提交时用 "COM3"
+                    displayText: (currentIndex < 0 || count === 0) ? "无可用串口" : currentText
+                }
+                Button {
+                    id: refreshBtn
+                    width: 26; height: 26
+                    onClicked: root.refreshPorts()
+                    ToolTip.text: "刷新端口"
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    background: Rectangle {
+                        radius: 13
+                        color: refreshBtn.hovered ? "#262633" : "#1C1C26"
+                        border.color: "#2E2E3B"
+                        border.width: 1
+                    }
+                    contentItem: Text {
+                        text: "↻"
+                        font.pixelSize: 14
+                        color: "#FFFFFF"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
             }
 
             Row {
                 spacing: 6
                 Button {
                     text: "连接"
-                    enabled: !root.isConnected && portCombo.currentText !== ""
-                    onClicked: backend.connect_device(portCombo.currentText, root.productName)
+                    enabled: !root.isConnected && portCombo.currentIndex >= 0
+                    onClicked: backend.connect_device(portCombo.currentValue, root.productName)
                 }
                 Button {
                     text: "断开"
@@ -72,19 +100,14 @@ Item {
                 }
             }
 
-            Button {
-                text: "刷新端口"
-                flat: true
-                onClicked: root.refreshPorts()
-            }
-
             Text {
                 id: connStatus
                 width: 172
                 wrapMode: Text.WordWrap
                 font.pixelSize: 11
-                color: root.isConnected ? "#0A84FF" : "#9A9AA5"
-                text: root.isConnected ? "● 已连接" : "○ 未连接"
+                color: root.isConnected ? "#0A84FF" : (root.lastError !== "" ? "#FF3B30" : "#9A9AA5")
+                text: root.isConnected ? "● 已连接"
+                      : (root.lastError !== "" ? "⚠ " + root.lastError : "○ 未连接")
             }
 
             Repeater {
@@ -121,7 +144,10 @@ Item {
 
     Connections {
         target: backend
-        function onConnected() { root.isConnected = true }
+        function onConnected() { root.isConnected = true; root.lastError = "" }
         function onDisconnected() { root.isConnected = false }
+        function onTaskFinished(ok, msg) {
+            if (!ok && msg.indexOf("连接失败") === 0) root.lastError = msg
+        }
     }
 }

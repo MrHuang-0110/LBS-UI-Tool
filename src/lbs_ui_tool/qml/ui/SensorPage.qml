@@ -33,58 +33,84 @@ Item {
 
     Column {
         anchors.fill: parent
-        anchors.margins: 24
-        spacing: 16
+        spacing: 0
 
-        Text {
-            text: "传感器更新"
-            color: "#FFFFFF"
-            font.pixelSize: 24
-            font.bold: true
-        }
+        PageHeader { title: "传感器更新" }
 
-        Text {
-            visible: root.productName !== "NEW-AI"
-            text: "本产品不支持传感器更新"
-            color: "#9A9AA5"
-            font.pixelSize: 16
-        }
+        Column {
+            width: parent.width
+            padding: 24
+            spacing: 16
 
-        Grid {
-            visible: root.productName === "NEW-AI"
-            columns: 4
-            spacing: 12
+            // 不支持:提示卡
+            Card {
+                visible: root.productName !== "NEW-AI"
+                width: 400
+                height: 72
 
-            Repeater {
-                model: ["A", "B", "C", "D", "E", "F", "G", "H"]
-                delegate: Column {
-                    spacing: 6
-                    Text {
-                        text: "端口 " + modelData
-                        color: "#FFFFFF"
-                    }
-                    ComboBox {
-                        width: 140
-                        model: root.deviceOptions
-                        textRole: "label"
-                        // 默认 currentIndex=0 即"保持不动"(255),与 selections 初值一致。
-                        onActivated: root.selections[modelData] = root.deviceOptions[currentIndex].value
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "本产品不支持传感器更新"
+                    color: "#9A9AA5"
+                    font.pixelSize: 16
+                }
+            }
+
+            // 支持:8 端口选择卡
+            Card {
+                visible: root.productName === "NEW-AI"
+                width: 656
+                height: grid.height + 32
+
+                Grid {
+                    id: grid
+                    width: parent.width
+                    columns: 4
+                    spacing: 12
+
+                    Repeater {
+                        model: ["A", "B", "C", "D", "E", "F", "G", "H"]
+                        delegate: Column {
+                            spacing: 6
+                            Text {
+                                text: "端口 " + modelData
+                                color: "#FFFFFF"
+                            }
+                            ComboBox {
+                                width: 140
+                                model: root.deviceOptions
+                                textRole: "label"
+                                // 默认 currentIndex=0 即"保持不动"(255),与 selections 初值一致。
+                                onActivated: root.selections[modelData] = root.deviceOptions[currentIndex].value
+                            }
+                        }
                     }
                 }
             }
-        }
 
-        Button {
-            visible: root.productName === "NEW-AI"
-            text: "更新"
-            onClicked: backend.update_sensors(root.selections)
-        }
+            // 支持:更新按钮 + 状态卡
+            Card {
+                visible: root.productName === "NEW-AI"
+                width: 656
+                height: 100
 
-        Text {
-            id: status
-            color: "#9A9AA5"
-            wrapMode: Text.WordWrap
-            width: parent.width
+                Column {
+                    anchors.fill: parent
+                    spacing: 12
+
+                    Button {
+                        text: "更新"
+                        onClicked: backend.update_sensors(root.selections)
+                    }
+
+                    Text {
+                        id: status
+                        color: "#9A9AA5"
+                        wrapMode: Text.WordWrap
+                        width: parent.width
+                    }
+                }
+            }
         }
     }
 
