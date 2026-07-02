@@ -41,3 +41,28 @@ def test_download_firmware_not_connected(qtbot: QtBot):
     with qtbot.waitSignal(b.taskFinished, timeout=1000) as blocker:
         b.download_firmware([{"partition": "app", "path": "x.bin"}])
     assert blocker.args[0] is False
+
+
+def test_state_to_dict():
+    from lbs_ui_tool.profiles.base import MonitorState
+    st = MonitorState(battery=90.0, version="100", state="run", ports={0: {"touch": 1}})
+    d = BackendBridge._state_to_dict(st)
+    assert d["battery"] == 90.0
+    assert d["ports"]["0"] == {"touch": 1}
+
+
+def test_monitor_poll_parses_frame(qtbot: QtBot, monkeypatch):
+    import json
+    from lbs_ui_tool.protocol.serial_transport import FakeSerial, SerialTransport
+    from lbs_ui_tool.protocol.frame_codec import FrameCodec
+    b = BackendBridge()
+    fake = FakeSerial()
+    monkeypatch.setattr(b, "_open_serial", lambda port: fake)
+    b.connect_device("COM1", "NEW-AI")
+    payload = json.dumps({"bat": "95", "version": 100, "NewAiState": "run"}).encode()
+    fake.feed(bytes(FrameCodec.encode(0x00, payload)))  # index 无所谓,parse_monitor 只看 data
+    received = []
+    b.monitorState.connect(lambda d: received.append(d))
+    b._poll_serial()
+    assert received
+    assert received[0]["battery"] == 95.0

@@ -7,7 +7,7 @@
 from typing import Optional
 
 import serial
-from PySide6.QtCore import QObject, Signal, Slot
+from PySide6.QtCore import QObject, QTimer, Signal, Slot
 
 from lbs_ui_tool.profiles.base import NotSupportedError, ProductProfile
 from lbs_ui_tool.profiles.registry import get_profile, list_products
@@ -29,6 +29,9 @@ class BackendBridge(QObject):
         self._transport: Optional[SerialTransport] = None
         self._serial = None
         self.profile: Optional[ProductProfile] = None
+        self._monitor_timer = QTimer(self)
+        self._monitor_timer.timeout.connect(self._poll_serial)
+        self._buf = b""
 
     @Slot(result="QVariantList")
     def list_products(self):
@@ -99,3 +102,25 @@ class BackendBridge(QObject):
     def enable_monitor(self, on: bool):
         if self.profile:
             self.profile.enable_monitor(on)
+            if on:
+                self._monitor_timer.start(50)
+            else:
+                self._monitor_timer.stop()
+
+    def _poll_serial(self):
+        from lbs_ui_tool.protocol.frame_codec import FrameCodec
+        if not self._transport:
+            return
+        self._buf += self._transport.read_once()
+        frames, self._buf = FrameCodec.decode_stream(self._buf)
+        for f in frames:
+            try:
+                st = self.profile.parse_monitor(f.data)
+                self.monitorState.emit(self._state_to_dict(st))
+            except Exception:
+                pass
+
+    @staticmethod
+    def _state_to_dict(st):
+        return {"battery": st.battery, "version": st.version,
+                "state": st.state, "ports": {str(k): v for k, v in st.ports.items()}}
