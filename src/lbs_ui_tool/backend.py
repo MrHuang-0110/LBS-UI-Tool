@@ -98,6 +98,24 @@ class BackendBridge(QObject):
         except Exception as e:
             self.taskFinished.emit(False, str(e))
 
+    @Slot("QVariantMap")
+    def update_sensors(self, ports_map):
+        """ports_map: {"A":161, "H":166, ...} 由 QML 传感器页收集。
+
+        NEW-AI profile 的 update_sensors 只 write 0x32 帧不读 ACK,
+        故无需向 FakeSerial 灌响应。
+        """
+        if not self.profile:
+            self.taskFinished.emit(False, "未连接")
+            return
+        try:
+            self.profile.update_sensors({k: int(v) for k, v in ports_map.items()})
+            self.taskFinished.emit(True, "传感器更新指令已发送")
+        except NotSupportedError as e:
+            self.taskFinished.emit(False, str(e))
+        except Exception as e:
+            self.taskFinished.emit(False, str(e))
+
     @Slot(bool)
     def enable_monitor(self, on: bool):
         if self.profile:

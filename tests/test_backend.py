@@ -66,3 +66,26 @@ def test_monitor_poll_parses_frame(qtbot: QtBot, monkeypatch):
     b._poll_serial()
     assert received
     assert received[0]["battery"] == 95.0
+
+
+def test_update_sensors_not_connected(qtbot: QtBot):
+    b = BackendBridge()
+    with qtbot.waitSignal(b.taskFinished, timeout=1000) as blocker:
+        b.update_sensors({"A": 161})
+    assert blocker.args[0] == False
+
+
+def test_update_sensors_emits_frame(qtbot: QtBot, monkeypatch):
+    from lbs_ui_tool.protocol.serial_transport import FakeSerial
+    from lbs_ui_tool.protocol.frame_codec import FrameCodec
+    b = BackendBridge()
+    fake = FakeSerial()
+    monkeypatch.setattr(b, "_open_serial", lambda port: fake)
+    b.connect_device("COM1", "NEW-AI")
+    with qtbot.waitSignal(b.taskFinished, timeout=1000) as blocker:
+        b.update_sensors({"A": 161, "H": 166})
+    assert blocker.args[0] == True
+    frames, _ = FrameCodec.decode_stream(bytes(fake.tx))
+    assert frames[0].index == 0x32
+    assert frames[0].data[0] == 0xA1
+    assert frames[0].data[7] == 0xA6
