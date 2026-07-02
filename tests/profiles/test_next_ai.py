@@ -34,3 +34,9 @@ def test_parse_monitor_basic():
     st = p.parse_monitor(payload)
     assert st.battery == 80.0
     assert st.version == "50"
+
+
+def test_next_ai_does_not_need_bootloader_switch():
+    from lbs_ui_tool.protocol.serial_transport import FakeSerial, SerialTransport
+    p = NextAiProfile(SerialTransport(FakeSerial()))
+    assert p.needs_bootloader_switch() is False

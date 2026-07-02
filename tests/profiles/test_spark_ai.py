@@ -43,3 +43,9 @@ def test_parse_monitor_uses_willaistate():
     state = p.parse_monitor(payload)
     assert state.state == "run"
     assert state.battery == 85.0
+
+
+def test_spark_ai_does_not_need_bootloader_switch():
+    from lbs_ui_tool.protocol.serial_transport import FakeSerial, SerialTransport
+    p = SparkAiProfile(SerialTransport(FakeSerial()))
+    assert p.needs_bootloader_switch() is False

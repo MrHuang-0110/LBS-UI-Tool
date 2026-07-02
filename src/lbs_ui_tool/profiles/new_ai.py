@@ -43,6 +43,8 @@ CMD_PY_EXIT = 0xB9
 CMD_MONITOR_ON = 0xBA
 CMD_MONITOR_OFF = 0xBE
 CMD_SENSOR_UPDATE = 0x32
+CMD_ENTER_BOOTLOADER = 0x6F
+BOOTLOADER_MAGIC = b"RESET_FWLIB"
 KEEP = 0xFF
 N_PORTS = 8
 
@@ -58,6 +60,13 @@ class NewAiProfile(ProductProfile):
     def handshake(self) -> bool:
         # NEW-AI 无显式握手帧,连接即就绪。
         return True
+
+    def needs_bootloader_switch(self) -> bool:
+        return True
+
+    def enter_bootloader(self) -> None:
+        """发 0x6F + "RESET_FWLIB" 让 APP 复位到 BOOT。不等 ACK,设备立即重启。"""
+        self._t.write(bytes(FrameCodec.encode(CMD_ENTER_BOOTLOADER, BOOTLOADER_MAGIC)))
 
     def firmware_template(self) -> FirmwarePackage:
         return FirmwarePackage(files=[

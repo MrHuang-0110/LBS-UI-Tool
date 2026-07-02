@@ -56,6 +56,16 @@ class ProductProfile(ABC):
     @abstractmethod
     def parse_monitor(self, raw: bytes) -> MonitorState: ...
 
+    def needs_bootloader_switch(self) -> bool:
+        """产品是否需要"发命令→设备重启→重连"进入升级模式的两阶段流程。
+        默认 False;需要的产品(NEW-AI)覆盖返回 True。"""
+        return False
+
+    def enter_bootloader(self) -> None:
+        """发进入升级模式命令。默认无操作(供不需两阶段的产品)。
+        NEW-AI 覆盖:发 0x6F + b"RESET_FWLIB" 帧,不等 ACK(设备会立即复位)。"""
+        pass
+
     def scan_firmware_dir(self, folder: str) -> FirmwarePackage:
         """扫描目录,按 firmware_template() 的分区顺序寻找匹配。
 

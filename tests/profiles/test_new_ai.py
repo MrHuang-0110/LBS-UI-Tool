@@ -67,3 +67,24 @@ def test_parse_monitor_normalizes():
     assert state.version == "100"
     assert state.state == "run"
     assert 0 in state.ports
+
+
+def test_enter_bootloader_sends_reset_fwlib_frame():
+    """0x6F + b"RESET_FWLIB" 帧,CRC 累加和低 8 位。"""
+    from lbs_ui_tool.protocol.serial_transport import FakeSerial, SerialTransport
+    from lbs_ui_tool.protocol.frame_codec import FrameCodec
+    fake = FakeSerial()
+    p = NewAiProfile(SerialTransport(fake))
+    p.enter_bootloader()
+    frames, _ = FrameCodec.decode_stream(bytes(fake.tx))
+    assert len(frames) == 1
+    assert frames[0].index == 0x6F
+    assert frames[0].data == b"RESET_FWLIB"
+    # 完整字节验证(CRC = 前缀累加和 & 0xFF = 0x559 & 0xFF = 0x59)
+    assert bytes(frames[0]) == bytes.fromhex("5A9798 0B 6F 52455345545F46574C4942 59 A5".replace(" ", ""))
+
+
+def test_new_ai_needs_bootloader_switch():
+    from lbs_ui_tool.protocol.serial_transport import FakeSerial, SerialTransport
+    p = NewAiProfile(SerialTransport(FakeSerial()))
+    assert p.needs_bootloader_switch() is True

@@ -204,3 +204,53 @@ def test_scan_firmware_dir_slot(qtbot, monkeypatch, tmp_path):
 def test_scan_firmware_dir_not_connected(qtbot):
     b = BackendBridge()
     assert b.scan_firmware_dir("/some/path") == []
+
+
+def test_download_firmware_calls_enter_bootloader_for_new_ai(qtbot, monkeypatch, tmp_path):
+    """NEW-AI 走 download 前应触发 enter_bootloader 与端口重连流程。"""
+    from lbs_ui_tool.protocol.serial_transport import FakeSerial
+    fake = FakeSerial()
+    fake.port = "COM_TEST"
+    b = BackendBridge()
+    monkeypatch.setattr(b, "_open_serial", lambda port: fake)
+    b.connect_device("COM_TEST", "NEW-AI")
+    # mock:port_present 直接连续返回 False(消失)→ True(重现)
+    seq = iter([False, True, True, True])
+    monkeypatch.setattr(b, "_port_present", lambda p: next(seq, True))
+    # mock:profile.download_firmware 不真跑,只标记调用
+    called = []
+    monkeypatch.setattr(b.profile, "download_firmware", lambda pkg, cb: called.append(True))
+    # mock:enter_bootloader 用 spy(直接调用真的实现,只是想验证它被调过)
+    enter_calls = []
+    orig_enter = b.profile.enter_bootloader
+    def spy_enter():
+        enter_calls.append(True)
+        orig_enter()
+    monkeypatch.setattr(b.profile, "enter_bootloader", spy_enter)
+    # 触发
+    src = tmp_path / "app.bin"
+    src.write_bytes(b"x")
+    with qtbot.waitSignal(b.taskFinished, timeout=20000) as blocker:
+        b.download_firmware([{"partition": "app", "path": str(src)}])
+    assert blocker.args[0] is True
+    assert enter_calls == [True]
+    assert called == [True]
+
+
+def test_download_firmware_skips_bootloader_switch_for_spark(qtbot, monkeypatch, tmp_path):
+    """SPARK-AI 不需要两阶段:enter_bootloader 不应被调用。"""
+    from lbs_ui_tool.protocol.serial_transport import FakeSerial
+    fake = FakeSerial()
+    fake.port = "COM_TEST"
+    b = BackendBridge()
+    monkeypatch.setattr(b, "_open_serial", lambda port: fake)
+    b.connect_device("COM_TEST", "SPARK-AI")
+    monkeypatch.setattr(b.profile, "download_firmware", lambda pkg, cb: None)
+    # SPARK 默认没 enter_bootloader?基类给的 pass 实现,能被 spy 到但不必被调
+    enter_calls = []
+    monkeypatch.setattr(b.profile, "enter_bootloader", lambda: enter_calls.append(True))
+    src = tmp_path / "app.bin"
+    src.write_bytes(b"x")
+    with qtbot.waitSignal(b.taskFinished, timeout=5000):
+        b.download_firmware([{"partition": "app", "path": str(src)}])
+    assert enter_calls == []  # SPARK 不需要,不应被调用
