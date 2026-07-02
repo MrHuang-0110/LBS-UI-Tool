@@ -125,3 +125,35 @@ def test_write_file(qtbot: QtBot, tmp_path):
     b = BackendBridge()
     b.write_file(str(p), "hello")
     assert p.read_text(encoding="utf-8") == "hello"
+
+
+# —— worker 线程(Task 19 收口项 2)——
+
+def test_run_in_worker_runs_task(qtbot: QtBot):
+    """_run_in_worker 在后台线程执行 fn;fn 内 emit 的信号经 Qt 队列连接
+    回主线程,qtbot.waitSignal 能收到。"""
+    b = BackendBridge()
+    done = []
+
+    def good():
+        done.append(True)
+        b.taskFinished.emit(True, "ok")
+
+    with qtbot.waitSignal(b.taskFinished, timeout=2000) as blocker:
+        b._run_in_worker(good)
+    assert done == [True]
+    assert blocker.args[0] is True
+    assert blocker.args[1] == "ok"
+
+
+def test_run_in_worker_emits_on_exception(qtbot: QtBot):
+    """fn 抛异常时 _run_in_worker 捕获并 emit taskFinished(False, 错误信息)。"""
+    b = BackendBridge()
+
+    def bad():
+        raise RuntimeError("boom")
+
+    with qtbot.waitSignal(b.taskFinished, timeout=2000) as blocker:
+        b._run_in_worker(bad)
+    assert blocker.args[0] is False
+    assert "boom" in blocker.args[1]

@@ -4,7 +4,8 @@
 ``QObject`` 上,由 ``main.py`` 通过 ``setContextProperty`` 注册到 QML
 引擎(不使用 ``@QmlElement`` 元注册,以便单元测试时直接实例化)。
 """
-from typing import Optional
+import threading
+from typing import Callable, Optional
 
 import serial
 from PySide6.QtCore import QObject, QTimer, Signal, Slot
@@ -69,6 +70,24 @@ class BackendBridge(QObject):
     def emit_progress(self, pct: str, msg: str):
         self.progress.emit(int(pct), msg)
 
+    def _run_in_worker(self, fn: Callable[[], None]) -> None:
+        """在后台守护线程执行 fn;fn 内部 emit 的 Qt 信号经 QueuedConnection
+        自动回主线程事件循环,UI 不卡顿。fn 抛异常时统一 emit
+        taskFinished(False, 错误信息)。
+
+        Qt 信号是线程安全的:BackendBridge 是 main thread 的 QObject,
+        从 worker 线程调用 ``signal.emit(...)`` 时,默认 AutoConnection
+        退化为 QueuedConnection,把发射投递到主线程事件循环。
+        """
+        def worker():
+            try:
+                fn()
+            except Exception as e:  # noqa: BLE001 —— worker 边界统一兜底
+                self.taskFinished.emit(False, str(e))
+
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+
     @Slot(result="QVariantList")
     def firmware_template(self):
         if not self.profile:
@@ -82,8 +101,9 @@ class BackendBridge(QObject):
     def download_firmware(self, files):
         """files: [{"partition":..., "path":...}] 由 QML 收集。
 
-        同步执行(阻塞调用线程);真机固件下发耗时较长会卡 UI 线程,
-        本任务先简单同步实现,后续可优化为 worker 线程(不在本任务范围)。
+        在 worker 线程执行,避免真机固件下发耗时卡 UI。启动前停掉监控
+        轮询定时器,确保 worker 独占串口(协议语义:OTA 时监控应关)。
+        完成后不自动重启监控——由 UI 重新打开监控开关恢复。
         """
         from lbs_ui_tool.profiles.base import FirmwarePackage, FirmwareFile
         if not self.profile:
@@ -92,11 +112,13 @@ class BackendBridge(QObject):
         pkg = FirmwarePackage(
             files=[FirmwareFile(f["partition"], f["path"]) for f in files if f.get("path")]
         )
-        try:
+        self._monitor_timer.stop()
+
+        def task():
             self.profile.download_firmware(pkg, lambda p, m: self.progress.emit(p, m))
             self.taskFinished.emit(True, "固件更新完成")
-        except Exception as e:
-            self.taskFinished.emit(False, str(e))
+
+        self._run_in_worker(task)
 
     @Slot("QVariantMap")
     def update_sensors(self, ports_map):
@@ -159,16 +181,18 @@ class BackendBridge(QObject):
 
     @Slot(str, int)
     def deploy_python(self, o_path, slot):
-        """把 .o 字节码下发到指定槽位(0-19)。同步执行会卡 UI 线程,
-        本任务先简单同步,Task 19 统一优化为 worker。"""
+        """把 .o 字节码下发到指定槽位(0-19)。在 worker 线程执行,
+        避免下发耗时卡 UI;启动前停监控定时器以独占串口。"""
         if not self.profile:
             self.taskFinished.emit(False, "未连接")
             return
-        try:
+        self._monitor_timer.stop()
+
+        def task():
             self.profile.deploy_python(o_path, slot, lambda p, m: self.progress.emit(p, m))
             self.taskFinished.emit(True, "下发完成")
-        except Exception as e:
-            self.taskFinished.emit(False, str(e))
+
+        self._run_in_worker(task)
 
     @Slot(str, result=str)
     def read_file(self, path):
