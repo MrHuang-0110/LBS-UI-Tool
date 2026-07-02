@@ -237,6 +237,44 @@ def test_download_firmware_calls_enter_bootloader_for_new_ai(qtbot, monkeypatch,
     assert called == [True]
 
 
+def test_enter_bootloader_and_reconnect_delays_before_return(qtbot, monkeypatch, tmp_path):
+    """重连后应有 2s BOOT 就绪等待,再让 download_firmware 开始。"""
+    import time as _time
+    from lbs_ui_tool.protocol.serial_transport import FakeSerial
+
+    fake = FakeSerial()
+    fake.port = "COM_TEST"
+    b = BackendBridge()
+    monkeypatch.setattr(b, "_open_serial", lambda port: fake)
+    b.connect_device("COM_TEST", "NEW-AI")
+
+    seq = iter([False, True, True, True, True])
+    monkeypatch.setattr(b, "_port_present", staticmethod(lambda p: next(seq, True)))
+
+    # 记录 sleep 调用时长,避免真等 2s(单测要快)
+    sleeps = []
+    orig_sleep = _time.sleep
+    def fake_sleep(sec):
+        sleeps.append(sec)
+        # 短轮询 sleep(0.1/0.2)保留真等,长 sleep(>=1s)只记录不真等
+        if sec < 1.0:
+            orig_sleep(sec)
+    monkeypatch.setattr("time.sleep", fake_sleep)
+
+    called = []
+    monkeypatch.setattr(b.profile, "download_firmware", lambda pkg, cb: called.append(True))
+    monkeypatch.setattr(b.profile, "enter_bootloader", lambda: None)
+
+    src = tmp_path / "app.bin"
+    src.write_bytes(b"x")
+    with qtbot.waitSignal(b.taskFinished, timeout=20000):
+        b.download_firmware([{"partition": "app", "path": str(src)}])
+
+    assert called == [True]
+    # 应有一次 >=2s 的 sleep 调用(就绪等待)
+    assert any(s >= 2.0 for s in sleeps), f"expected 2s BOOT-ready sleep, got {sleeps}"
+
+
 def test_download_firmware_skips_bootloader_switch_for_spark(qtbot, monkeypatch, tmp_path):
     """SPARK-AI 不需要两阶段:enter_bootloader 不应被调用。"""
     from lbs_ui_tool.protocol.serial_transport import FakeSerial

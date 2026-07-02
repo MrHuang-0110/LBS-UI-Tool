@@ -203,6 +203,9 @@ class BackendBridge(QObject):
         if hasattr(self.profile, "_fft"):
             from lbs_ui_tool.protocol.frame_file_transfer import FrameFileTransfer
             self.profile._fft = FrameFileTransfer(self._transport)
+        # BOOT 起来后需要初始化时间,直接下发会拒 ACK。等 2 秒。
+        self.progress.emit(10, "等待 BOOT 就绪...")
+        time.sleep(2.0)
 
     @staticmethod
     def _port_present(port: str) -> bool:

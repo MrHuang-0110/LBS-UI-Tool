@@ -14,6 +14,10 @@ Item {
     // 当前选中的固件包目录(纯路径)。
     property string currentDir: ""
 
+    // 连接状态:由 backend.connected/disconnected 信号驱动(见下方 Connections)。
+    // 供"开始更新"按钮 enabled 绑定与源头防御检查使用。
+    property bool isConnected: false
+
     // 已识别分区数,供"开始更新"按钮做响应式 enabled 绑定
     // (直接调用 _identifiedCount() 无法随 ListModel 变化重算)。
     property int identifiedCount: 0
@@ -261,8 +265,12 @@ Item {
 
                         Button {
                             text: "开始更新"
-                            enabled: root.identifiedCount > 0
+                            enabled: root.isConnected && root.identifiedCount > 0
                             onClicked: {
+                                if (!root.isConnected) {
+                                    statusText.text = "⚠ 请先连接设备"
+                                    return
+                                }
                                 var files = []
                                 for (var i = 0; i < filesModel.count; i++) {
                                     var item = filesModel.get(i)
@@ -295,8 +303,9 @@ Item {
         target: backend
         function onProgress(pct, msg) { bar.value = pct / 100; statusText.text = msg }
         function onTaskFinished(ok, msg) { statusText.text = msg }
-        function onConnected() { root.loadTemplate() }
+        function onConnected() { root.isConnected = true; root.loadTemplate() }
         function onDisconnected() {
+            root.isConnected = false
             root.currentDir = ""
             filesModel.clear()
             partitionsModel.clear()
